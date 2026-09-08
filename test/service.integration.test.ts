@@ -1,0 +1,318 @@
+import { describe, expect, it } from 'vitest';
+import { WclClient } from '../src/client.js';
+import { WclService } from '../src/service.js';
+import type { FetchLike } from '../src/types.js';
+import {
+  TEST_CONFIG,
+  fightsResponse,
+  jsonResponse,
+  playersResponse,
+  tokenResponse,
+} from './helpers.js';
+
+const CODE = 'gDBTZr6pz1AvnxbW';
+
+type Route = (query: string, variables: Record<string, unknown>) => Response;
+
+function routedService(route: Route): WclService {
+  const fetcher: FetchLike = (input, init) => {
+    if (String(input).endsWith('/oauth/token')) return Promise.resolve(tokenResponse());
+    if (typeof init?.body !== 'string') throw new Error('Expected GraphQL body');
+    const body: unknown = JSON.parse(init.body);
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      throw new Error('Expected GraphQL object');
+    }
+    const query = 'query' in body && typeof body.query === 'string' ? body.query : '';
+    const variables =
+      'variables' in body &&
+      typeof body.variables === 'object' &&
+      body.variables !== null &&
+      !Array.isArray(body.variables)
+        ? (body.variables as Record<string, unknown>)
+        : {};
+    return Promise.resolve(route(query, variables));
+  };
+  return new WclService(new WclClient(TEST_CONFIG, { fetcher, sleep: () => Promise.resolve() }));
+}
+
+function tableResponse(entries: unknown[]): Response {
+  return jsonResponse({
+    data: { reportData: { report: { table: { data: { entries, totalTime: 10_000 } } } } },
+  });
+}
+
+describe('WclService mock integration', () => {
+  it('paginates events without exceeding the event limit', async () => {
+    const cursors: number[] = [];
+    const service = routedService((query, variables) => {
+      if (query.includes('ListFights')) return fightsResponse();
+      if (query.includes('GetReportEvents')) {
+        const start = Number(variables['startTime']);
+        cursors.push(start);
+        const base = start === 0 ? 0 : 100;
+        const events = Array.from({ length: 100 }, (_, index) => ({
+          timestamp: start + index,
+          type: 'damage',
+          amount: base + index,
+        }));
+        return jsonResponse({
+          data: {
+            reportData: {
+              report: { events: { data: events, nextPageTimestamp: start === 0 ? 5_000 : null } },
+            },
+          },
+        });
+      }
+      throw new Error('Unexpected query');
+    });
+
+    const result = await service.getEvents(
+      CODE,
+      {
+        dataType: 'DamageDone',
+        maxEvents: 200,
+        pageSize: 100,
+        maxPages: 3,
+        maxPayloadBytes: 1_000_000,
+      },
+      { fight: 1 },
+    );
+    expect(result.events).toHaveLength(200);
+    expect(result.pagination).toMatchObject({
+      pagesFetched: 2,
+      nextPageTimestamp: null,
+      stopReason: 'complete',
+    });
+    expect(cursors).toEqual([0, 5_000]);
+  });
+
+  it("supports a small consumer limit while honoring WCL's 100-event page minimum", async () => {
+    const requestedLimits: number[] = [];
+    const service = routedService((query, variables) => {
+      if (query.includes('ListFights')) return fightsResponse();
+      if (query.includes('GetReportEvents')) {
+        requestedLimits.push(Number(variables['limit']));
+        return jsonResponse({
+          data: {
+            reportData: {
+              report: {
+                events: {
+                  data: Array.from({ length: 100 }, (_, index) => ({
+                    timestamp: index,
+                    type: 'cast',
+                  })),
+                  nextPageTimestamp: null,
+                },
+              },
+            },
+          },
+        });
+      }
+      throw new Error('Unexpected query');
+    });
+
+    const result = await service.getEvents(
+      CODE,
+      { dataType: 'Casts', maxEvents: 10, pageSize: 100, maxPages: 1 },
+      { fight: 1 },
+    );
+    expect(requestedLimits).toEqual([100]);
+    expect(result.events).toHaveLength(10);
+    expect(result.pagination).toMatchObject({
+      nextPageTimestamp: 10,
+      stopReason: 'maxEvents',
+      cursorMayRepeat: true,
+    });
+  });
+
+  it('stops before crossing the byte budget and exposes a resumable inclusive cursor', async () => {
+    const service = routedService((query) => {
+      if (query.includes('ListFights')) return fightsResponse();
+      if (query.includes('GetReportEvents')) {
+        return jsonResponse({
+          data: {
+            reportData: {
+              report: {
+                events: {
+                  data: [
+                    { timestamp: 100, payload: 'a'.repeat(4_500) },
+                    { timestamp: 200, payload: 'b'.repeat(4_500) },
+                  ],
+                  nextPageTimestamp: null,
+                },
+              },
+            },
+          },
+        });
+      }
+      throw new Error('Unexpected query');
+    });
+
+    const result = await service.getEvents(
+      CODE,
+      {
+        dataType: 'All',
+        maxEvents: 100,
+        pageSize: 100,
+        maxPages: 1,
+        maxPayloadBytes: 10_000,
+      },
+      { fight: 1 },
+    );
+    expect(result.events).toHaveLength(1);
+    expect(result.pagination).toMatchObject({
+      nextPageTimestamp: 200,
+      stopReason: 'payloadBudget',
+      cursorMayRepeat: true,
+    });
+    expect(Buffer.byteLength(JSON.stringify(result), 'utf8')).toBeLessThanOrEqual(10_000);
+  });
+
+  it('transforms a Mythic+ summary with player metrics and enemy forces', async () => {
+    const service = routedService((query, variables) => {
+      if (query.includes('ListFights')) return fightsResponse();
+      if (query.includes('ListPlayers')) return playersResponse();
+      if (query.includes('GetReportTable')) {
+        switch (variables['dataType']) {
+          case 'DamageDone':
+            return tableResponse([
+              { id: 1, name: 'Alice', total: 10_000 },
+              { id: 2, name: 'Bob', total: 5_000 },
+            ]);
+          case 'Healing':
+            return tableResponse([
+              { id: 1, name: 'Alice', total: 500 },
+              { id: 2, name: 'Bob', total: 8_000 },
+            ]);
+          case 'Deaths':
+            return tableResponse([{ id: 1, name: 'Alice', deathEvents: [{ timestamp: 5_000 }] }]);
+          case 'Interrupts':
+            return tableResponse([{ id: 1, name: 'Alice', uses: 4 }]);
+          default:
+            throw new Error('Unexpected table');
+        }
+      }
+      throw new Error('Unexpected query');
+    });
+
+    const result = await service.getMythicPlusSummary(CODE, { fight: 1 });
+    expect(result).toMatchObject({
+      keyLevel: 10,
+      durationMs: 10_000,
+      enemyForces: { reached: 100, required: 100, percent: 100 },
+      warnings: [],
+    });
+    expect(result.players[0]).toMatchObject({
+      id: 1,
+      name: 'Alice',
+      totalDamage: 10_000,
+      dps: 1_000,
+      hps: 50,
+      deaths: 1,
+      interrupts: 4,
+    });
+    expect(result.players[1]).toMatchObject({ id: 2, name: 'Bob', deaths: 0, interrupts: 0 });
+  });
+
+  it('preserves player-array alignment when WCL returns nullable spec or item-level slots', async () => {
+    const service = routedService((query) => {
+      if (query.includes('ListPlayers')) {
+        return jsonResponse({
+          data: {
+            reportData: {
+              report: {
+                masterData: {
+                  actors: [
+                    {
+                      id: 1,
+                      gameID: 101,
+                      name: 'Alice',
+                      server: 'Realm',
+                      type: 'Player',
+                      subType: 'Paladin',
+                      icon: null,
+                      petOwner: null,
+                    },
+                    {
+                      id: 2,
+                      gameID: 102,
+                      name: 'Bob',
+                      server: 'Realm',
+                      type: 'Player',
+                      subType: 'Priest',
+                      icon: null,
+                      petOwner: null,
+                    },
+                  ],
+                },
+                fights: [
+                  {
+                    id: 1,
+                    friendlyPlayers: [1, 2],
+                    friendlySpecs: ['Retribution', null],
+                    friendlyItemLevels: [301, null],
+                  },
+                ],
+              },
+            },
+          },
+        });
+      }
+      throw new Error('Unexpected query');
+    });
+
+    const result = await service.listPlayers(CODE);
+    expect(result.players[0]).toMatchObject({ specs: ['Retribution'], itemLevels: [301] });
+    expect(result.players[1]).toMatchObject({ specs: [], itemLevels: [] });
+  });
+
+  it('returns best-effort player evidence with warnings for failed components', async () => {
+    const service = routedService((query, variables) => {
+      if (query.includes('ListFights')) return fightsResponse();
+      if (query.includes('ListPlayers')) return playersResponse();
+      if (query.includes('GetReportTable')) {
+        if (variables['dataType'] === 'Buffs') {
+          return jsonResponse({ data: null, errors: [{ message: 'Buff table unavailable' }] });
+        }
+        return tableResponse([{ id: 1, name: 'Alice', total: 10 }]);
+      }
+      if (query.includes('GetReportEvents')) {
+        return jsonResponse({
+          data: {
+            reportData: {
+              report: {
+                events: { data: [{ timestamp: 0, sourceID: 1 }], nextPageTimestamp: null },
+              },
+            },
+          },
+        });
+      }
+      if (query.includes('GetTalentImportCode')) {
+        return jsonResponse({
+          data: {
+            reportData: { report: { fights: [{ id: 1, talentImportCode: 'TALENT-CODE' }] } },
+          },
+        });
+      }
+      throw new Error('Unexpected query');
+    });
+
+    const result = await service.getPlayerAnalysisContext(CODE, 'alice', { fight: 1 });
+    expect(result.player).toMatchObject({ id: 1, name: 'Alice' });
+    expect(result.evidence).toHaveProperty('damageDone');
+    expect(result.evidence).toHaveProperty('combatantInfo');
+    expect(result.evidence).toHaveProperty('talentImportCode');
+    expect(result.evidence).not.toHaveProperty('buffs');
+    expect(result.warnings).toEqual([expect.objectContaining({ component: 'buffs' })]);
+  });
+
+  it('maps report-not-found nulls to a stable structured error', async () => {
+    const service = routedService((query) => {
+      if (query.includes('GetReport')) {
+        return jsonResponse({ data: { reportData: { report: null } } });
+      }
+      throw new Error('Unexpected query');
+    });
+    await expect(service.getReport(CODE)).rejects.toMatchObject({ code: 'REPORT_NOT_FOUND' });
+  });
+});
