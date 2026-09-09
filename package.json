@@ -1,6 +1,6 @@
 {
   "name": "warcraftlogs-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A community MCP server for reliable, AI-friendly Warcraft Logs report analysis.",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -25,6 +25,7 @@
     "dist",
     "docs",
     "CHANGELOG.md",
+    "CONTRIBUTING.md",
     "LICENSE",
     "README.md",
     "SECURITY.md"
@@ -65,7 +66,7 @@
     "lint": "eslint . --max-warnings=0",
     "lint:package": "publint && attw --pack .",
     "prepack": "pnpm build",
-    "release": "pnpm build && npm publish",
+    "release": "pnpm build && changeset publish",
     "smoke": "pnpm build && node dist/cli.mjs doctor",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

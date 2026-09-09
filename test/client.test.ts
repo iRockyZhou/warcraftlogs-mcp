@@ -6,6 +6,64 @@ import { TEST_CONFIG, jsonResponse, queueFetch, requestHeader, tokenResponse } f
 const ORIGIN = 'https://www.warcraftlogs.com' as const;
 
 describe('WclClient', () => {
+  it('uses a user token and the private GraphQL endpoint when requested', async () => {
+    const { fetcher, calls } = queueFetch([jsonResponse({ data: { ok: true } })]);
+    const client = new WclClient(
+      { ...TEST_CONFIG, userAccessTokens: { global: 'private-user-token' } },
+      { fetcher },
+    );
+
+    await expect(client.query(ORIGIN, 'query Test { ok }', {}, { mode: 'user' })).resolves.toEqual({
+      ok: true,
+    });
+    expect(String(calls[0]?.input)).toBe(`${ORIGIN}/api/v2/user`);
+    expect(requestHeader(calls[0], 'authorization')).toBe('Bearer private-user-token');
+  });
+
+  it('fails before making a request when explicit user authorization is unavailable', async () => {
+    const { fetcher, calls } = queueFetch([]);
+    const client = new WclClient(TEST_CONFIG, { fetcher });
+
+    await expect(
+      client.query(ORIGIN, 'query Test { ok }', {}, { mode: 'user' }),
+    ).rejects.toMatchObject({ code: 'USER_AUTH_REQUIRED' });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('falls back to the public endpoint after an invalid user token in auto mode', async () => {
+    const { fetcher, calls } = queueFetch([
+      jsonResponse({}, 401),
+      tokenResponse('public-token'),
+      jsonResponse({ data: { ok: true } }),
+    ]);
+    const client = new WclClient(
+      { ...TEST_CONFIG, userAccessTokens: { global: 'stale-user-token' } },
+      { fetcher, sleep: () => Promise.resolve() },
+    );
+
+    await expect(client.query(ORIGIN, 'query Test { ok }', {})).resolves.toEqual({ ok: true });
+    expect(String(calls[0]?.input)).toBe(`${ORIGIN}/api/v2/user`);
+    expect(String(calls[1]?.input)).toBe(`${ORIGIN}/oauth/token`);
+    expect(String(calls[2]?.input)).toBe(`${ORIGIN}/api/v2/client`);
+    expect(requestHeader(calls[2], 'authorization')).toBe('Bearer public-token');
+  });
+
+  it('never sends the user token when public mode is selected', async () => {
+    const { fetcher, calls } = queueFetch([
+      tokenResponse('public-token'),
+      jsonResponse({ data: { ok: true } }),
+    ]);
+    const client = new WclClient(
+      { ...TEST_CONFIG, userAccessTokens: { global: 'private-user-token' } },
+      { fetcher },
+    );
+
+    await client.query(ORIGIN, 'query Test { ok }', {}, { mode: 'public' });
+    expect(String(calls[1]?.input)).toBe(`${ORIGIN}/api/v2/client`);
+    expect(requestHeader(calls[1], 'authorization')).toBe('Bearer public-token');
+    expect(JSON.stringify(calls)).not.toContain('private-user-token');
+  });
+
   it('refreshes once after a 401', async () => {
     const { fetcher, calls } = queueFetch([
       tokenResponse('old-token'),

@@ -1,8 +1,15 @@
 import { WclAuth } from './auth.js';
-import type { WclOrigin } from './constants.js';
+import { PACKAGE_VERSION, TOKEN_EXPIRY_SKEW_MS, WCL_ORIGINS, type WclOrigin } from './constants.js';
 import { WclError, jsonDetail } from './errors.js';
 import { defaultSleep, parseRetryAfter } from './retry.js';
-import type { FetchLike, GraphqlErrorItem, JsonObject, Sleep, WclConfig } from './types.js';
+import type {
+  FetchLike,
+  GraphqlErrorItem,
+  JsonObject,
+  QueryAccess,
+  Sleep,
+  WclConfig,
+} from './types.js';
 
 function graphqlErrorDetails(errors: GraphqlErrorItem[]): JsonObject {
   return {
@@ -46,12 +53,38 @@ export class WclClient {
     this.auth = options.auth ?? new WclAuth(config, this.fetcher, this.now, this.sleep);
   }
 
+  hasValidUserToken(origin: WclOrigin): boolean {
+    return this.userToken(origin) !== undefined;
+  }
+
+  private userToken(origin: WclOrigin): string | undefined {
+    const region = origin === WCL_ORIGINS.cn ? 'cn' : 'global';
+    const token = this.config.userAccessTokens[region];
+    const expiresAt = this.config.userTokenExpiresAt[region];
+    return token !== undefined &&
+      (expiresAt === undefined || expiresAt - TOKEN_EXPIRY_SKEW_MS > this.now())
+      ? token
+      : undefined;
+  }
+
   async query(
     origin: WclOrigin,
     query: string,
     variables: Record<string, unknown>,
+    access: QueryAccess = {},
   ): Promise<unknown> {
-    let token = await this.auth.getToken(origin);
+    const region = origin === WCL_ORIGINS.cn ? 'cn' : 'global';
+    const userToken = this.userToken(origin);
+    const mode = access.mode ?? 'auto';
+    const useUserEndpoint = mode === 'user' || (mode === 'auto' && userToken !== undefined);
+    if (useUserEndpoint && userToken === undefined) {
+      throw new WclError(
+        'USER_AUTH_REQUIRED',
+        'A valid Warcraft Logs user access token is required for private data. Run `warcraftlogs-mcp auth login` or configure WCL_USER_ACCESS_TOKEN.',
+        { details: { region } },
+      );
+    }
+    let token = useUserEndpoint ? userToken! : await this.auth.getToken(origin);
     let refreshed = false;
     let transientRetries = 0;
     let rateLimitRetried = false;
@@ -61,13 +94,13 @@ export class WclClient {
       const timeout = setTimeout(() => controller.abort(), this.config.requestTimeoutMs);
       let response: Response;
       try {
-        response = await this.fetcher(`${origin}/api/v2/client`, {
+        response = await this.fetcher(`${origin}/api/v2/${useUserEndpoint ? 'user' : 'client'}`, {
           method: 'POST',
           headers: {
             accept: 'application/json',
             authorization: `Bearer ${token}`,
             'content-type': 'application/json',
-            'user-agent': 'warcraftlogs-mcp/0.1.0',
+            'user-agent': `warcraftlogs-mcp/${PACKAGE_VERSION}`,
           },
           body: JSON.stringify({ query, variables }),
           redirect: 'error',
@@ -94,6 +127,14 @@ export class WclClient {
       clearTimeout(timeout);
 
       if (response.status === 401) {
+        if (useUserEndpoint) {
+          if (mode === 'auto') return this.query(origin, query, variables, { mode: 'public' });
+          throw new WclError(
+            'USER_AUTH_REQUIRED',
+            'The Warcraft Logs user authorization is invalid or expired. Run `warcraftlogs-mcp auth login` again.',
+            { details: { region, status: 401 } },
+          );
+        }
         if (refreshed) {
           throw new WclError('AUTH_FAILED', 'Warcraft Logs rejected the refreshed access token.', {
             details: { status: 401 },

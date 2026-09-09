@@ -5,6 +5,15 @@ export type JsonValue = JsonPrimitive | JsonValue[] | JsonObject;
 export type JsonObject = { [key: string]: JsonValue };
 
 export type FightSelector = number | 'last';
+export type WclAccessMode = 'auto' | 'public' | 'user';
+export type CharacterRegion = 'us' | 'eu' | 'kr' | 'tw' | 'cn';
+
+export type CharacterIdentity = {
+  name: string;
+  serverSlug: string;
+  serverRegion: CharacterRegion;
+  apiRegion: WclRegion;
+};
 
 export type ParsedReportUrl = {
   origin: WclOrigin;
@@ -21,9 +30,16 @@ export type ReportReference = ParsedReportUrl & {
 export type WclConfig = {
   clientId?: string;
   clientSecret?: string;
+  userAccessTokens: Partial<Record<WclRegion, string>>;
+  userTokenExpiresAt: Partial<Record<WclRegion, number>>;
+  stateDirectory: string;
   requestTimeoutMs: number;
   maxRetries: number;
   maxRetryAfterMs: number;
+};
+
+export type QueryAccess = {
+  mode?: WclAccessMode | undefined;
 };
 
 export type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
@@ -201,4 +217,51 @@ export type EventQuery = {
 export type EventPage = {
   data: JsonValue[];
   nextPageTimestamp: number | null;
+};
+
+export type RecentReport = {
+  code: string;
+  title: string;
+  startTime: number;
+  endTime: number;
+  visibility: string;
+  owner: { name: string } | null;
+  zone: { id: number; name: string } | null;
+  fights: {
+    id: number;
+    name: string;
+    startTime: number;
+    endTime: number;
+    kill: boolean | null;
+    difficulty: number | null;
+    fightPercentage: number | null;
+    keystoneLevel: number | null;
+  }[];
+};
+
+export type CharacterProfile = CharacterIdentity & {
+  id: number;
+  canonicalID: number;
+  classID: number;
+  level: number;
+  hidden: boolean;
+  faction: { id: number; name: string };
+  server: {
+    id: number;
+    name: string;
+    normalizedName: string;
+    slug: string;
+    region: { id: number; name: string; compactName: string; slug: string };
+  };
+  guilds: { id: number; name: string }[];
+};
+
+export type CharacterSubscription = {
+  id: string;
+  character: CharacterIdentity;
+  accessMode: WclAccessMode;
+  createdAt: string;
+  lastCheckedAt: string | null;
+  lastSeenReportStartTime: number;
+  seenReportCodesAtBoundary: string[];
 };

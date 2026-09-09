@@ -1,4 +1,4 @@
-import { TOKEN_EXPIRY_SKEW_MS, type WclOrigin } from './constants.js';
+import { PACKAGE_VERSION, TOKEN_EXPIRY_SKEW_MS, type WclOrigin } from './constants.js';
 import { assertCredentials } from './config.js';
 import { WclError } from './errors.js';
 import { defaultSleep, parseRetryAfter } from './retry.js';
@@ -62,7 +62,7 @@ export class WclAuth {
             accept: 'application/json',
             authorization: `Basic ${credentials}`,
             'content-type': 'application/x-www-form-urlencoded',
-            'user-agent': 'warcraftlogs-mcp/0.1.0',
+            'user-agent': `warcraftlogs-mcp/${PACKAGE_VERSION}`,
           },
           body: new URLSearchParams({ grant_type: 'client_credentials' }),
           redirect: 'error',
@@ -137,8 +137,10 @@ export class WclAuth {
         throw new WclError('INVALID_RESPONSE', 'Warcraft Logs OAuth returned no access token.');
       }
       const expiresIn =
-        typeof payload.expires_in === 'number' && Number.isFinite(payload.expires_in)
-          ? Math.max(60, payload.expires_in)
+        typeof payload.expires_in === 'number' &&
+        Number.isFinite(payload.expires_in) &&
+        payload.expires_in > 0
+          ? payload.expires_in
           : 3_600;
       this.cache.set(origin, {
         value: payload.access_token,

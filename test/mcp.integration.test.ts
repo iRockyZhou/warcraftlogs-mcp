@@ -60,6 +60,24 @@ describe('MCP mock integration', () => {
           'get_events',
           'get_mythic_plus_summary',
           'get_player_analysis_context',
+          'set_active_character',
+          'get_active_character',
+          'clear_active_character',
+          'get_character_summary',
+          'get_recent_reports',
+          'get_encounter_rankings',
+          'subscribe_character',
+          'list_character_subscriptions',
+          'check_character_subscriptions',
+          'unsubscribe_character',
+          'get_fight_summary',
+          'get_fight_damage',
+          'get_fight_healing',
+          'get_fight_damage_taken',
+          'get_character_deaths',
+          'get_character_casts',
+          'get_buff_uptime',
+          'get_fight_events',
         ].sort(),
       );
 
@@ -74,6 +92,10 @@ describe('MCP mock integration', () => {
         ['get_dispels', 'sourceID'],
         ['get_healing', 'sourceID'],
         ['get_resources', 'sourceID'],
+        ['get_fight_damage', 'sourceID'],
+        ['get_fight_healing', 'sourceID'],
+        ['get_fight_damage_taken', 'targetID'],
+        ['get_buff_uptime', 'targetID'],
       ] as const;
 
       for (const [name, expectedFilter] of semantics) {
@@ -89,11 +111,23 @@ describe('MCP mock integration', () => {
         ]);
         const variables = tableVariables.at(-1);
         expect(variables).toHaveProperty(expectedFilter, 7);
+        expect(variables).toHaveProperty('allowUnlisted', true);
         expect(variables).not.toHaveProperty(
           expectedFilter === 'sourceID' ? 'targetID' : 'sourceID',
         );
       }
       expect(tableVariables).toHaveLength(semantics.length);
+
+      const privateWithoutAuthorization = await client.callTool({
+        name: 'list_fights',
+        arguments: { report: CODE, fightID: 1, accessMode: 'user' },
+      });
+      expect(privateWithoutAuthorization.isError).toBe(true);
+      expect(privateWithoutAuthorization.structuredContent).toMatchObject({
+        error: {
+          code: 'USER_AUTH_REQUIRED',
+        },
+      });
     } finally {
       await client.close();
       await server.close();

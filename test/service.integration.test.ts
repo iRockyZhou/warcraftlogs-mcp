@@ -42,6 +42,78 @@ function tableResponse(entries: unknown[]): Response {
 }
 
 describe('WclService mock integration', () => {
+  it('reads private report metadata through the user GraphQL endpoint', async () => {
+    const urls: string[] = [];
+    const fetcher: FetchLike = (input, init) => {
+      urls.push(String(input));
+      if (typeof init?.body !== 'string') throw new Error('Expected GraphQL body');
+      const body = JSON.parse(init.body) as { variables: Record<string, unknown> };
+      expect(body.variables).toMatchObject({ code: CODE, allowUnlisted: true });
+      return Promise.resolve(
+        jsonResponse({
+          data: {
+            reportData: {
+              report: {
+                code: CODE,
+                title: 'Private report',
+                startTime: 1,
+                endTime: 2,
+                visibility: 'private',
+                revision: 1,
+                segments: 1,
+                exportedSegments: 1,
+                zone: null,
+                archiveStatus: null,
+              },
+            },
+          },
+        }),
+      );
+    };
+    const service = new WclService(
+      new WclClient(
+        { ...TEST_CONFIG, userAccessTokens: { global: 'authorized-user-token' } },
+        { fetcher },
+      ),
+    );
+
+    await expect(service.getReport(CODE, { accessMode: 'user' })).resolves.toMatchObject({
+      report: { visibility: 'private' },
+    });
+    expect(urls).toEqual(['https://www.warcraftlogs.com/api/v2/user']);
+  });
+
+  it('allows a directly supplied unlisted report code by default', async () => {
+    let variables: Record<string, unknown> = {};
+    const service = routedService((query, value) => {
+      if (!query.includes('GetReport')) throw new Error('Unexpected query');
+      variables = value;
+      return jsonResponse({
+        data: {
+          reportData: {
+            report: {
+              code: CODE,
+              title: 'Unlisted report',
+              startTime: 1,
+              endTime: 2,
+              visibility: 'unlisted',
+              revision: 1,
+              segments: 1,
+              exportedSegments: 1,
+              zone: null,
+              archiveStatus: null,
+            },
+          },
+        },
+      });
+    });
+
+    await expect(service.getReport(CODE)).resolves.toMatchObject({
+      report: { visibility: 'unlisted' },
+    });
+    expect(variables).toMatchObject({ code: CODE, allowUnlisted: true });
+  });
+
   it('paginates events without exceeding the event limit', async () => {
     const cursors: number[] = [];
     const service = routedService((query, variables) => {
@@ -197,6 +269,9 @@ describe('WclService mock integration', () => {
 
     const result = await service.getMythicPlusSummary(CODE, { fight: 1 });
     expect(result).toMatchObject({
+      contentType: 'mythicplus',
+      location: 'Test Dungeon',
+      dungeon: 'Test Dungeon',
       keyLevel: 10,
       durationMs: 10_000,
       enemyForces: { reached: 100, required: 100, percent: 100 },
@@ -212,6 +287,103 @@ describe('WclService mock integration', () => {
       interrupts: 4,
     });
     expect(result.players[1]).toMatchObject({ id: 2, name: 'Bob', deaths: 0, interrupts: 0 });
+  });
+
+  it('discovers recent reports for bounded character death and cast history', async () => {
+    const tableVariables: Record<string, unknown>[] = [];
+    const service = routedService((query, variables) => {
+      if (query.includes('GetRecentReports')) {
+        return jsonResponse({
+          data: {
+            characterData: {
+              character: {
+                id: 1,
+                canonicalID: 10,
+                name: 'Alice',
+                classID: 2,
+                level: 80,
+                hidden: false,
+                faction: { id: 1, name: 'Alliance' },
+                server: {
+                  id: 1,
+                  name: 'Realm',
+                  normalizedName: 'Realm',
+                  slug: 'realm',
+                  region: { id: 1, name: 'United States', compactName: 'US', slug: 'us' },
+                },
+                guilds: [],
+                recentReports: {
+                  total: 1,
+                  per_page: 5,
+                  current_page: 1,
+                  last_page: 1,
+                  has_more_pages: false,
+                  data: [
+                    {
+                      code: CODE,
+                      title: 'Recent run',
+                      startTime: 1_000,
+                      endTime: 11_000,
+                      visibility: 'public',
+                      owner: { name: 'Uploader' },
+                      zone: { id: 42, name: 'Test Dungeon' },
+                      fights: [
+                        {
+                          id: 1,
+                          name: 'Test Dungeon',
+                          startTime: 0,
+                          endTime: 10_000,
+                          kill: true,
+                          difficulty: 10,
+                          fightPercentage: 0,
+                          keystoneLevel: 10,
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        });
+      }
+      if (query.includes('ListPlayers')) return playersResponse();
+      if (query.includes('GetReportTable')) {
+        tableVariables.push(variables);
+        return tableResponse([{ name: 'Test ability', total: 2 }]);
+      }
+      throw new Error('Unexpected query');
+    });
+    const identity = { name: 'Alice', server: 'Realm', serverRegion: 'us' };
+
+    const deaths = await service.getCharacterDeaths(identity, { contentType: 'mythicplus' });
+    const casts = await service.getCharacterCasts(identity, { contentType: 'mythicplus' });
+
+    expect(deaths).toMatchObject({
+      dataType: 'Deaths',
+      sourceTargetSemantics: 'target',
+      reportsScanned: 1,
+      reportsReturned: 1,
+      fightsAnalyzed: 1,
+      warnings: [],
+    });
+    expect(casts).toMatchObject({
+      dataType: 'Casts',
+      sourceTargetSemantics: 'source',
+      reportsReturned: 1,
+    });
+    expect(tableVariables[0]).toMatchObject({
+      dataType: 'Deaths',
+      fightIDs: [1],
+      targetID: 1,
+      allowUnlisted: true,
+    });
+    expect(tableVariables[1]).toMatchObject({
+      dataType: 'Casts',
+      fightIDs: [1],
+      sourceID: 1,
+      allowUnlisted: true,
+    });
   });
 
   it('preserves player-array alignment when WCL returns nullable spec or item-level slots', async () => {
@@ -304,6 +476,46 @@ describe('WclService mock integration', () => {
     expect(result.evidence).toHaveProperty('talentImportCode');
     expect(result.evidence).not.toHaveProperty('buffs');
     expect(result.warnings).toEqual([expect.objectContaining({ component: 'buffs' })]);
+  });
+
+  it('omits later analysis components before crossing the aggregate byte budget', async () => {
+    const service = routedService((query) => {
+      if (query.includes('ListFights')) return fightsResponse();
+      if (query.includes('ListPlayers')) return playersResponse();
+      if (query.includes('GetReportTable')) {
+        return tableResponse([{ id: 1, name: 'Alice', payload: 'x'.repeat(60_000) }]);
+      }
+      if (query.includes('GetReportEvents')) {
+        return jsonResponse({
+          data: {
+            reportData: {
+              report: {
+                events: {
+                  data: [{ timestamp: 0, sourceID: 1, payload: 'y'.repeat(60_000) }],
+                  nextPageTimestamp: null,
+                },
+              },
+            },
+          },
+        });
+      }
+      if (query.includes('GetTalentImportCode')) {
+        return jsonResponse({
+          data: {
+            reportData: { report: { fights: [{ id: 1, talentImportCode: 'TALENT-CODE' }] } },
+          },
+        });
+      }
+      throw new Error('Unexpected query');
+    });
+
+    const result = await service.getPlayerAnalysisContext(CODE, 'Alice', {
+      fight: 1,
+      maxPayloadBytes: 150_000,
+    });
+
+    expect(Buffer.byteLength(JSON.stringify(result), 'utf8')).toBeLessThanOrEqual(150_000);
+    expect(result.warnings).toContainEqual(expect.objectContaining({ code: 'PAYLOAD_TOO_LARGE' }));
   });
 
   it('maps report-not-found nulls to a stable structured error', async () => {

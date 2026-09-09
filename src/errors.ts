@@ -17,6 +17,8 @@ export type WclErrorCode =
   | 'FIGHT_REQUIRED'
   | 'PLAYER_NOT_FOUND'
   | 'SERVER_ERROR'
+  | 'STORAGE_ERROR'
+  | 'USER_AUTH_REQUIRED'
   | 'TIMEOUT';
 
 export class WclError extends Error {

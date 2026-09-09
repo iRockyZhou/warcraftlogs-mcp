@@ -157,3 +157,83 @@ export const eventsResponseSchema = reportData(
 export const doctorResponseSchema = z.object({
   reportData: z.object({ __typename: z.string() }),
 });
+
+const characterCoreSchema = z.object({
+  id: z.number().int(),
+  canonicalID: z.number().int(),
+  name: z.string(),
+  classID: z.number().int(),
+  level: z.number().int(),
+  hidden: z.boolean(),
+  faction: z.object({ id: z.number().int(), name: z.string() }),
+  server: z.object({
+    id: z.number().int(),
+    name: z.string(),
+    normalizedName: z.string(),
+    slug: z.string(),
+    region: z.object({
+      id: z.number().int(),
+      name: z.string(),
+      compactName: z.string(),
+      slug: z.string(),
+    }),
+  }),
+  guilds: z.array(z.object({ id: z.number().int(), name: z.string() })).nullish(),
+});
+
+const recentReportSchema = z.object({
+  code: z.string(),
+  title: z.string(),
+  startTime: z.number(),
+  endTime: z.number(),
+  visibility: z.string(),
+  owner: z.object({ name: z.string() }).nullable(),
+  zone: z.object({ id: z.number().int(), name: z.string() }).nullable(),
+  fights: z
+    .array(
+      z.object({
+        id: z.number().int(),
+        name: z.string(),
+        startTime: z.number(),
+        endTime: z.number(),
+        kill: nullableBoolean,
+        difficulty: z.number().int().nullable(),
+        fightPercentage: nullableNumber,
+        keystoneLevel: z.number().int().nullable(),
+      }),
+    )
+    .nullish()
+    .transform((value) => value ?? []),
+});
+
+export const characterResponseSchema = z.object({
+  characterData: z.object({ character: characterCoreSchema.nullable() }),
+});
+
+export const recentReportsResponseSchema = z.object({
+  characterData: z.object({
+    character: characterCoreSchema
+      .extend({
+        recentReports: z.object({
+          total: z.number().int(),
+          per_page: z.number().int(),
+          current_page: z.number().int(),
+          last_page: z.number().int(),
+          has_more_pages: z.boolean(),
+          data: z.array(recentReportSchema).nullable(),
+        }),
+      })
+      .nullable(),
+  }),
+});
+
+export const rankingResponseSchema = z.object({
+  characterData: z.object({
+    character: z
+      .object({
+        encounterRankings: z.json().optional(),
+        zoneRankings: z.json().optional(),
+      })
+      .nullable(),
+  }),
+});

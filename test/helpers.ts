@@ -3,6 +3,9 @@ import type { FetchLike, WclConfig } from '../src/types.js';
 export const TEST_CONFIG: WclConfig = {
   clientId: 'client-id',
   clientSecret: 'client-secret',
+  userAccessTokens: {},
+  userTokenExpiresAt: {},
+  stateDirectory: '/tmp/warcraftlogs-mcp-test',
   requestTimeoutMs: 1_000,
   maxRetries: 2,
   maxRetryAfterMs: 2_000,

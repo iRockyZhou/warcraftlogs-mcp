@@ -36,12 +36,52 @@ const fightSchema = z
   .optional()
   .describe('Fight ID, or "last". A selector in the report URL is used when omitted.');
 const translateSchema = z.boolean().optional().default(true);
+const accessModeSchema = z
+  .enum(['auto', 'public', 'user'])
+  .optional()
+  .default('auto')
+  .describe('auto uses user authorization when available; user requires it; public never uses it.');
+const serverRegionSchema = z.enum(['us', 'eu', 'kr', 'tw', 'cn']);
+const encounterMetricSchema = z.enum([
+  'default',
+  'dps',
+  'hps',
+  'bossdps',
+  'playerscore',
+  'playerspeed',
+  'tankhps',
+  'wdps',
+]);
+const zoneMetricSchema = z.union([
+  encounterMetricSchema,
+  z.enum(['points_and_damage', 'points_and_healing']),
+]);
+const optionalCharacterShape = {
+  name: z.string().min(1).optional(),
+  server: z.string().min(1).optional().describe('Realm name or WCL server slug.'),
+  serverRegion: serverRegionSchema.optional(),
+};
+const characterHistorySchema = z.object({
+  ...optionalCharacterShape,
+  accessMode: accessModeSchema,
+  contentType: z.enum(['all', 'raid', 'mythicplus']).optional().default('all'),
+  limitReports: z.number().int().min(1).max(10).optional().default(5),
+  maxEntries: z.number().int().min(1).max(200).optional().default(100),
+  maxPayloadBytes: z
+    .number()
+    .int()
+    .min(100_000)
+    .max(MAX_EVENT_MAX_BYTES)
+    .optional()
+    .default(600_000),
+});
 
 const commonFightShape = {
   report: reportSchema,
   region: regionSchema,
   fightID: fightSchema,
   translate: translateSchema,
+  accessMode: accessModeSchema,
 };
 
 const tableInputSchema = z.object({
@@ -130,6 +170,18 @@ const readOnlyAnnotations = {
   openWorldHint: true,
 } as const;
 
+const localWriteAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+} as const;
+
+const statefulOpenWorldAnnotations = {
+  ...localWriteAnnotations,
+  openWorldHint: true,
+} as const;
+
 function asObject(value: unknown): JsonObject {
   const json = jsonDetail(value);
   return typeof json === 'object' && json !== null && !Array.isArray(json) ? json : { value: json };
@@ -214,6 +266,7 @@ function registerTableTool(
           region: args.region,
           fight: args.fightID,
           translate: args.translate,
+          accessMode: args.accessMode,
           filter: tableFilter(args.playerID, semantics, args),
           maxEntries: args.maxEntries,
           maxPayloadBytes: args.maxPayloadBytes,
@@ -227,7 +280,7 @@ export function createServer(service: WclService): McpServer {
     { name: PACKAGE_NAME, version: PACKAGE_VERSION },
     {
       instructions:
-        'Parse a report URL, list fights and players, then prefer get_mythic_plus_summary or get_player_analysis_context. Use get_events only for a narrow evidence window and continue with nextPageTimestamp when needed. The server returns evidence, not class-specific combat judgments.',
+        'For report URLs, list fights and players, then prefer get_fight_summary, get_mythic_plus_summary, or get_player_analysis_context. For character-first work, set an active character and use recent reports. Character subscriptions are pull-based and require periodic checks. Use accessMode=user for private data and get_events only for narrow evidence windows. The server returns evidence, not class-specific combat judgments.',
     },
   );
 
@@ -251,7 +304,8 @@ export function createServer(service: WclService): McpServer {
       inputSchema: z.object({
         report: reportSchema,
         region: regionSchema,
-        allowUnlisted: z.boolean().optional().default(false),
+        allowUnlisted: z.boolean().optional().default(true),
+        accessMode: accessModeSchema,
       }),
       annotations: readOnlyAnnotations,
     },
@@ -260,6 +314,7 @@ export function createServer(service: WclService): McpServer {
         service.getReport(args.report, {
           region: args.region,
           allowUnlisted: args.allowUnlisted,
+          accessMode: args.accessMode,
         }),
       ),
   );
@@ -279,6 +334,7 @@ export function createServer(service: WclService): McpServer {
           region: args.region,
           fight: args.fightID,
           translate: args.translate,
+          accessMode: args.accessMode,
         }),
       ),
   );
@@ -298,6 +354,7 @@ export function createServer(service: WclService): McpServer {
           region: args.region,
           fight: args.fightID,
           translate: args.translate,
+          accessMode: args.accessMode,
         }),
       ),
   );
@@ -317,6 +374,7 @@ export function createServer(service: WclService): McpServer {
           region: args.region,
           fight: args.fightID,
           translate: args.translate,
+          accessMode: args.accessMode,
         }),
       ),
   );
@@ -338,6 +396,7 @@ export function createServer(service: WclService): McpServer {
           region: args.region,
           fight: args.fightID,
           translate: args.translate,
+          accessMode: args.accessMode,
         }),
       ),
   );
@@ -465,7 +524,12 @@ export function createServer(service: WclService): McpServer {
             maxPayloadBytes: args.maxPayloadBytes,
             translate: args.translate,
           },
-          { region: args.region, fight: args.fightID, translate: args.translate },
+          {
+            region: args.region,
+            fight: args.fightID,
+            translate: args.translate,
+            accessMode: args.accessMode,
+          },
         ),
       ),
   );
@@ -498,7 +562,12 @@ export function createServer(service: WclService): McpServer {
             maxPages: args.maxPages,
             maxPayloadBytes: args.maxPayloadBytes,
           },
-          { region: args.region, fight: args.fightID, translate: args.translate },
+          {
+            region: args.region,
+            fight: args.fightID,
+            translate: args.translate,
+            accessMode: args.accessMode,
+          },
         ),
       ),
   );
@@ -518,6 +587,7 @@ export function createServer(service: WclService): McpServer {
           region: args.region,
           fight: args.fightID,
           translate: args.translate,
+          accessMode: args.accessMode,
         }),
       ),
   );
@@ -532,6 +602,13 @@ export function createServer(service: WclService): McpServer {
         ...commonFightShape,
         player: z.union([z.number().int().positive(), z.string().min(1)]),
         maxEntries: z.number().int().min(1).max(200).optional().default(100),
+        maxPayloadBytes: z
+          .number()
+          .int()
+          .min(100_000)
+          .max(MAX_EVENT_MAX_BYTES)
+          .optional()
+          .default(600_000),
       }),
       annotations: readOnlyAnnotations,
     },
@@ -541,8 +618,340 @@ export function createServer(service: WclService): McpServer {
           region: args.region,
           fight: args.fightID,
           translate: args.translate,
+          accessMode: args.accessMode,
           maxEntries: args.maxEntries,
+          maxPayloadBytes: args.maxPayloadBytes,
         }),
+      ),
+  );
+
+  server.registerTool(
+    'set_active_character',
+    {
+      title: 'Set active character',
+      description:
+        'Validate and persist the default character used by character discovery and ranking tools.',
+      inputSchema: z.object({
+        name: z.string().min(1),
+        server: z.string().min(1).describe('Realm name or WCL server slug.'),
+        serverRegion: serverRegionSchema,
+      }),
+      annotations: statefulOpenWorldAnnotations,
+    },
+    async (args) =>
+      execute(() => service.setActiveCharacter(args.name, args.server, args.serverRegion)),
+  );
+
+  server.registerTool(
+    'get_active_character',
+    {
+      title: 'Get active character',
+      description: 'Return the locally persisted active character, if one is configured.',
+      inputSchema: z.object({}),
+      annotations: readOnlyAnnotations,
+    },
+    async () => execute(() => ({ activeCharacter: service.getActiveCharacter() })),
+  );
+
+  server.registerTool(
+    'clear_active_character',
+    {
+      title: 'Clear active character',
+      description: 'Remove the locally persisted active-character default.',
+      inputSchema: z.object({}),
+      annotations: { ...localWriteAnnotations, destructiveHint: true },
+    },
+    async () => execute(() => service.clearActiveCharacter()),
+  );
+
+  server.registerTool(
+    'get_character_summary',
+    {
+      title: 'Get character summary',
+      description:
+        'Resolve a character and summarize its recent report availability and content types. Omit all identity fields to use the active character.',
+      inputSchema: z.object({ ...optionalCharacterShape, accessMode: accessModeSchema }),
+      annotations: readOnlyAnnotations,
+    },
+    async (args) =>
+      execute(() =>
+        service.getCharacterSummary(
+          { name: args.name, server: args.server, serverRegion: args.serverRegion },
+          { accessMode: args.accessMode },
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'get_recent_reports',
+    {
+      title: 'Get recent character reports',
+      description:
+        'List recent reports for a character, including report visibility and bounded fight metadata. User access can include private reports visible to the authorized WCL account.',
+      inputSchema: z.object({
+        ...optionalCharacterShape,
+        accessMode: accessModeSchema,
+        limit: z.number().int().min(1).max(100).optional().default(10),
+        page: z.number().int().positive().optional().default(1),
+        contentType: z.enum(['all', 'raid', 'mythicplus']).optional().default('all'),
+      }),
+      annotations: readOnlyAnnotations,
+    },
+    async (args) =>
+      execute(() =>
+        service.getRecentReports(
+          { name: args.name, server: args.server, serverRegion: args.serverRegion },
+          {
+            accessMode: args.accessMode,
+            limit: args.limit,
+            page: args.page,
+            contentType: args.contentType,
+          },
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'get_encounter_rankings',
+    {
+      title: 'Get character encounter rankings',
+      description:
+        'Get WCL rankings for one character and exactly one encounter or zone. Private parses require user authorization and includePrivateLogs=true.',
+      inputSchema: z
+        .object({
+          ...optionalCharacterShape,
+          accessMode: accessModeSchema,
+          encounterID: z.number().int().positive().optional(),
+          zoneID: z.number().int().positive().optional(),
+          difficulty: z.number().int().positive().optional(),
+          metric: zoneMetricSchema.optional(),
+          includePrivateLogs: z.boolean().optional().default(false),
+        })
+        .refine((value) => (value.encounterID === undefined) !== (value.zoneID === undefined), {
+          message: 'Provide exactly one of encounterID or zoneID.',
+        })
+        .refine(
+          (value) =>
+            value.encounterID === undefined ||
+            value.metric === undefined ||
+            value.metric === 'default' ||
+            encounterMetricSchema.safeParse(value.metric).success,
+          { message: 'points_and_damage and points_and_healing are zone-only metrics.' },
+        ),
+      annotations: readOnlyAnnotations,
+    },
+    async (args) =>
+      execute(() =>
+        service.getEncounterRankings(
+          { name: args.name, server: args.server, serverRegion: args.serverRegion },
+          {
+            accessMode: args.accessMode,
+            encounterID: args.encounterID,
+            zoneID: args.zoneID,
+            difficulty: args.difficulty,
+            metric: args.metric,
+            includePrivateLogs: args.includePrivateLogs,
+          },
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'subscribe_character',
+    {
+      title: 'Subscribe to character reports',
+      description:
+        'Persist a pull-based subscription. By default current reports become the baseline, so later checks return only newly discovered reports.',
+      inputSchema: z.object({
+        name: z.string().min(1),
+        server: z.string().min(1),
+        serverRegion: serverRegionSchema,
+        accessMode: accessModeSchema,
+        includeExisting: z.boolean().optional().default(false),
+      }),
+      annotations: statefulOpenWorldAnnotations,
+    },
+    async (args) =>
+      execute(() =>
+        service.subscribeCharacter(args.name, args.server, args.serverRegion, {
+          accessMode: args.accessMode,
+          includeExisting: args.includeExisting,
+        }),
+      ),
+  );
+
+  server.registerTool(
+    'list_character_subscriptions',
+    {
+      title: 'List character subscriptions',
+      description: 'List locally persisted character report subscriptions and their cursors.',
+      inputSchema: z.object({}),
+      annotations: readOnlyAnnotations,
+    },
+    async () => execute(() => service.listCharacterSubscriptions()),
+  );
+
+  server.registerTool(
+    'check_character_subscriptions',
+    {
+      title: 'Check character subscriptions',
+      description:
+        'Poll WCL for new reports and advance subscription cursors. Omit subscriptionID to check all subscriptions.',
+      inputSchema: z.object({ subscriptionID: z.uuid().optional() }),
+      annotations: statefulOpenWorldAnnotations,
+    },
+    async (args) => execute(() => service.checkCharacterSubscriptions(args.subscriptionID)),
+  );
+
+  server.registerTool(
+    'unsubscribe_character',
+    {
+      title: 'Unsubscribe from character reports',
+      description: 'Delete one locally persisted character report subscription.',
+      inputSchema: z.object({ subscriptionID: z.uuid() }),
+      annotations: { ...localWriteAnnotations, destructiveHint: true },
+    },
+    async (args) => execute(() => service.unsubscribeCharacter(args.subscriptionID)),
+  );
+
+  server.registerTool(
+    'get_fight_summary',
+    {
+      title: 'Get fight summary',
+      description:
+        'Get a compact raid or Mythic+ fight summary with player damage, healing, deaths, interrupts, and fight metadata.',
+      inputSchema: z.object(commonFightShape),
+      annotations: readOnlyAnnotations,
+    },
+    async (args) =>
+      execute(() =>
+        service.getFightSummary(args.report, {
+          region: args.region,
+          fight: args.fightID,
+          translate: args.translate,
+          accessMode: args.accessMode,
+        }),
+      ),
+  );
+
+  registerTableTool(
+    server,
+    service,
+    'get_fight_damage',
+    'Get fight damage',
+    'Compatibility alias for get_damage_done with bounded source semantics.',
+    'DamageDone',
+    'source',
+  );
+  registerTableTool(
+    server,
+    service,
+    'get_fight_healing',
+    'Get fight healing',
+    'Compatibility alias for get_healing with bounded source semantics.',
+    'Healing',
+    'source',
+  );
+  registerTableTool(
+    server,
+    service,
+    'get_fight_damage_taken',
+    'Get fight damage taken',
+    'Compatibility alias for get_damage_taken with bounded target semantics.',
+    'DamageTaken',
+    'target',
+  );
+  server.registerTool(
+    'get_character_deaths',
+    {
+      title: 'Get character death history',
+      description:
+        'Discover recent reports and return bounded, best-effort death evidence for one character across those reports.',
+      inputSchema: characterHistorySchema,
+      annotations: readOnlyAnnotations,
+    },
+    async (args) =>
+      execute(() =>
+        service.getCharacterDeaths(
+          { name: args.name, server: args.server, serverRegion: args.serverRegion },
+          {
+            accessMode: args.accessMode,
+            contentType: args.contentType,
+            limitReports: args.limitReports,
+            maxEntries: args.maxEntries,
+            maxPayloadBytes: args.maxPayloadBytes,
+          },
+        ),
+      ),
+  );
+  server.registerTool(
+    'get_character_casts',
+    {
+      title: 'Get character cast history',
+      description:
+        'Discover recent reports and return bounded, best-effort cast evidence for one character across those reports.',
+      inputSchema: characterHistorySchema,
+      annotations: readOnlyAnnotations,
+    },
+    async (args) =>
+      execute(() =>
+        service.getCharacterCasts(
+          { name: args.name, server: args.server, serverRegion: args.serverRegion },
+          {
+            accessMode: args.accessMode,
+            contentType: args.contentType,
+            limitReports: args.limitReports,
+            maxEntries: args.maxEntries,
+            maxPayloadBytes: args.maxPayloadBytes,
+          },
+        ),
+      ),
+  );
+  registerTableTool(
+    server,
+    service,
+    'get_buff_uptime',
+    'Get buff uptime',
+    'Compatibility alias for get_buffs with bounded target semantics.',
+    'Buffs',
+    'target',
+  );
+
+  server.registerTool(
+    'get_fight_events',
+    {
+      title: 'Get fight events',
+      description:
+        'Compatibility alias for get_events with full pagination, time-window, event-count, page-count, and byte protections.',
+      inputSchema: eventInputSchema,
+      annotations: readOnlyAnnotations,
+    },
+    async (args) =>
+      execute(() =>
+        service.getEvents(
+          args.report,
+          {
+            dataType: args.dataType,
+            sourceID: args.sourceID,
+            targetID: args.targetID,
+            abilityID: args.abilityID,
+            startTime: args.startTime,
+            endTime: args.endTime,
+            cursor: args.cursor,
+            includeResources: args.includeResources,
+            translate: args.translate,
+            maxEvents: args.maxEvents,
+            pageSize: args.pageSize,
+            maxPages: args.maxPages,
+            maxPayloadBytes: args.maxPayloadBytes,
+          },
+          {
+            region: args.region,
+            fight: args.fightID,
+            translate: args.translate,
+            accessMode: args.accessMode,
+          },
+        ),
       ),
   );
 

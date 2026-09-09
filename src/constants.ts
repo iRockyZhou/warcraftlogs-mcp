@@ -1,5 +1,5 @@
 export const PACKAGE_NAME = 'warcraftlogs-mcp';
-export const PACKAGE_VERSION = '0.1.0';
+export const PACKAGE_VERSION = '0.2.0';
 
 export const WCL_ORIGINS = {
   global: 'https://www.warcraftlogs.com',

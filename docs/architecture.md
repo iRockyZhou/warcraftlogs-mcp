@@ -6,9 +6,10 @@
 MCP client
   -> SDK v2 tool schemas and stdio transport
   -> WclService orchestration and fight/player resolution
+  -> local active-character/subscription state
   -> bounded table/event normalization
   -> WclClient retry and error policy
-  -> WclAuth in-memory token cache
+  -> client-token cache or user OAuth token
   -> allow-listed Warcraft Logs API v2 origin
 ```
 
@@ -25,7 +26,11 @@ This design rejects suffix/prefix look-alike hosts, user-info tricks, alternate 
 
 ## Authentication and requests
 
-`WclAuth` caches tokens separately per origin. A promise map deduplicates simultaneous token misses. Tokens expire slightly early to avoid racing the server's expiry boundary.
+`WclAuth` caches client-credentials tokens separately per origin. A promise map deduplicates simultaneous token misses. Tokens expire slightly early to avoid racing the server's expiry boundary.
+
+The access selector has three modes. `public` always uses `/api/v2/client`; `user` requires a valid user token and uses `/api/v2/user`; `auto` uses valid user authorization when present and otherwise uses the public endpoint. A rejected user token in `auto` mode falls back to public data once, while explicit `user` mode returns `USER_AUTH_REQUIRED`.
+
+Authorization-code login binds an HTTP callback only on a loopback hostname, validates a random state value, exchanges the code directly with WCL, and persists the resulting user token with restrictive filesystem permissions. WCL does not document refresh tokens, so an expired user grant requires login again.
 
 OAuth and GraphQL requests share the same bounded network policy: short `Retry-After` handling, exponential retry for transient failures, timeouts, and structured terminal errors.
 
@@ -67,15 +72,25 @@ When a byte budget cuts a page, the timestamp of the first unreturned event beco
 
 `get_mythic_plus_summary` joins fight metadata, master actors, and four small tables. Non-essential tables use `Promise.allSettled`; missing damage/healing/death/interrupt evidence appears as a warning instead of erasing the whole summary.
 
-`get_player_analysis_context` follows the same best-effort pattern for damage, casts, damage taken, interrupts, deaths, buffs, resources, CombatantInfo, and the talent import code. Per-component entry and byte budgets keep the aggregate context bounded.
+`get_player_analysis_context` follows the same best-effort pattern for damage, casts, damage taken, interrupts, deaths, buffs, resources, CombatantInfo, and the talent import code. Per-component entry/byte limits feed an aggregate byte budget; later components are omitted with warnings before the result can cross that budget.
 
 Tool results carry the complete evidence once in MCP `structuredContent`; the text block is intentionally a short compatibility notice. This avoids doubling large tables and event windows on the wire.
 
 The core does not encode Retribution Paladin or other specialization heuristics. Future analysis packs should consume this stable evidence contract and remain optional.
 
+## Character discovery and subscriptions
+
+Character names, realm names, and regions are normalized into a stable identity. `set_active_character` validates that identity against WCL before atomically persisting it. Character discovery exposes recent reports and encounter or zone rankings without mixing these queries into report-analysis code.
+
+`get_character_deaths` and `get_character_casts` are bounded compound queries: they discover at most ten recent reports, resolve the character's report actor ID independently in each report, apply target semantics for deaths and source semantics for casts, and collect per-report tables with partial-failure warnings. Per-table limits feed a final aggregate byte budget.
+
+A subscription is a local pull cursor containing the latest report start time plus every report code at that timestamp. This boundary set prevents duplicates without dropping two reports that share a start time. `auto` is resolved to `public` or `user` when the subscription is created, so an expired private grant cannot silently advance the cursor using public-only results. Checks are serialized in process and state files are replaced atomically. Individual subscription failures are returned alongside successful checks instead of aborting the batch.
+
+The stdio server does not run a background notifier. A live MCP client or external scheduler must invoke `check_character_subscriptions` periodically.
+
 ## Testing strategy
 
-- Unit tests cover URL security, token caching, retry/error policy, fight selection, and table normalization.
+- Unit tests cover URL security, both OAuth flows, secure state persistence, character normalization, token caching, retry/error policy, fight selection, and table normalization.
 - Mock integration tests exercise HTTP -> GraphQL envelope -> service aggregation and pagination.
-- An MCP in-memory transport test lists tools and invokes wrappers to verify source/target variables on real tool calls.
+- An MCP in-memory transport test lists all tools and invokes native and compatibility wrappers to verify source/target variables on real tool calls.
 - A live smoke test is optional because it requires user-owned credentials: `pnpm smoke -- '<report-url>'`.
