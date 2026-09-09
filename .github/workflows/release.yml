@@ -11,8 +11,8 @@ permissions:
 
 jobs:
   release:
-    if: vars.NPM_PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-latest
+    environment: npm
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -23,8 +23,9 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-      - uses: changesets/action@v1
+      - uses: changesets/action@v2
         with:
-          publish: pnpm release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          publish-script: pnpm release
+          create-github-releases: true
+          push-git-tags: true

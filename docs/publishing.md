@@ -1,8 +1,6 @@
 # Publishing
 
-No workflow publishes merely because the repository exists. Complete the one-time ownership setup first.
-
-The Release job is disabled by default. It runs only when the repository Actions variable `NPM_PUBLISH_ENABLED` is exactly `true`, preventing a new repository from attempting an unconfigured first npm publish.
+Publishing uses Changesets v3 and npm Trusted Publishing. The GitHub Actions workflow receives a short-lived OIDC credential for each release; the repository stores no long-lived npm token.
 
 ## First release
 
@@ -27,7 +25,7 @@ The Release job is disabled by default. It runs only when the repository Actions
    gh repo create iRockyZhou/warcraftlogs-mcp --public --source=. --remote=origin --push
    ```
 
-4. Publish the first version interactively from a trusted machine:
+4. Publish the first version interactively from a trusted machine. npm needs an existing package before its Trusted Publisher can be configured:
 
    ```bash
    npm login
@@ -42,18 +40,13 @@ In the npm package settings, add a GitHub Actions trusted publisher with:
 Owner: iRockyZhou
 Repository: warcraftlogs-mcp
 Workflow filename: release.yml
-Environment: leave blank
+Environment: npm
+Allowed action: npm publish
 ```
 
-The workflow has `id-token: write`, uses a GitHub-hosted runner, and does not require a long-lived `NPM_TOKEN`. npm generates provenance automatically for a public package published from a public repository.
+Create a GitHub environment named `npm`. The release job is bound to that environment, so npm's trust policy only accepts the intended workflow and environment. Optional GitHub environment protection rules can require a reviewer before production publishing.
 
-After the trusted publisher is configured and only when automated npm publishing is desired, create this GitHub repository Actions variable:
-
-```text
-NPM_PUBLISH_ENABLED=true
-```
-
-Leave the variable absent or set it to any other value to keep the Release job disabled.
+The workflow has `id-token: write`, uses a GitHub-hosted runner, runs the complete project check before release, and does not require a long-lived `NPM_TOKEN`. npm generates provenance automatically for a public package published from a public repository.
 
 ## Later releases
 
@@ -63,6 +56,8 @@ Add a Changeset in each user-visible pull request:
 pnpm changeset
 ```
 
-After those changes reach `main`, the release workflow opens or updates a version pull request. Merging that pull request causes the same workflow to publish through npm OIDC and create GitHub release metadata.
+After those changes reach `main`, the release workflow opens or updates a version pull request. Merging that pull request causes the same workflow to publish through npm OIDC, push the version tag, and create GitHub release metadata.
+
+The repository must allow GitHub Actions to create pull requests under **Settings → Actions → General → Workflow permissions**.
 
 Never add an npm automation token unless trusted publishing is unavailable and the security trade-off has been reviewed.

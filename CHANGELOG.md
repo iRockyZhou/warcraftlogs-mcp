@@ -18,7 +18,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Direct report lookups allow unlisted reports by default.
 - Package version and runtime user-agent are now `0.2.0`.
-- The npm Release workflow is disabled until `NPM_PUBLISH_ENABLED=true` is explicitly configured.
+- The npm Release workflow is gated by npm Trusted Publishing and a dedicated GitHub `npm` environment, with no long-lived npm token.
 
 ## [0.1.0] - 2026-09-08
 
