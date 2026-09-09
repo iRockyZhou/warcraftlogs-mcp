@@ -1,6 +1,6 @@
 {
   "name": "warcraftlogs-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A community MCP server for reliable, AI-friendly Warcraft Logs report analysis.",
   "type": "module",
   "main": "./dist/index.cjs",
