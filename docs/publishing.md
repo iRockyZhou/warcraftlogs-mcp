@@ -2,6 +2,8 @@
 
 No workflow publishes merely because the repository exists. Complete the one-time ownership setup first.
 
+The Release job is disabled by default. It runs only when the repository Actions variable `NPM_PUBLISH_ENABLED` is exactly `true`, preventing a new repository from attempting an unconfigured first npm publish.
+
 ## First release
 
 1. Confirm the npm name is still available:
@@ -44,6 +46,14 @@ Environment: leave blank
 ```
 
 The workflow has `id-token: write`, uses a GitHub-hosted runner, and does not require a long-lived `NPM_TOKEN`. npm generates provenance automatically for a public package published from a public repository.
+
+After the trusted publisher is configured and only when automated npm publishing is desired, create this GitHub repository Actions variable:
+
+```text
+NPM_PUBLISH_ENABLED=true
+```
+
+Leave the variable absent or set it to any other value to keep the Release job disabled.
 
 ## Later releases
 
