@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-09-11
+
+### Fixed
+
+- Use WCL's player/source perspective for Damage Taken and Deaths tables, restoring non-empty player evidence and correctly scoped death history.
+- Sum current WCL nested interrupt details and repeated per-death rows in Mythic+ summaries instead of returning zero or null metrics.
+- Extend interactive OAuth login to 15 minutes, explain stale callback failures, and remove the short-lived authorization code from the visible completion URL.
+
+### Documentation
+
+- Document the verified Taiwan Battle.net/V2-client route for CN reports and clarify WCL's data-type-aware source/target semantics.
+
 ## [0.2.0] - 2026-09-09
 
 ### Added
@@ -33,3 +45,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 [0.1.0]: https://github.com/iRockyZhou/warcraftlogs-mcp/releases/tag/v0.1.0
 [0.2.0]: https://github.com/iRockyZhou/warcraftlogs-mcp/releases/tag/v0.2.0
+[0.2.1]: https://github.com/iRockyZhou/warcraftlogs-mcp/releases/tag/v0.2.1

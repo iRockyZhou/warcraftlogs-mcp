@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
-import { WCL_ORIGINS, type WclRegion } from './constants.js';
+import { DEFAULT_OAUTH_LOGIN_TIMEOUT_MS, WCL_ORIGINS, type WclRegion } from './constants.js';
 import { assertCredentials } from './config.js';
 import { WclError } from './errors.js';
 import { saveUserToken } from './storage.js';
@@ -10,6 +10,10 @@ type OAuthTokenPayload = {
   access_token?: unknown;
   expires_in?: unknown;
 };
+
+function callbackHtml(message: string): string {
+  return `<!doctype html><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>Warcraft Logs authorization</title><p>${message}</p><script>history.replaceState(null, '', '/authorization-complete')</script>`;
+}
 
 export function validateRedirectUri(value: string): URL {
   let url: URL;
@@ -126,6 +130,7 @@ export async function loginWithLocalCallback(
 ): Promise<{ region: WclRegion; expiresAt: number | null; stateDirectory: string }> {
   assertCredentials(config);
   const redirectUri = validateRedirectUri(redirectUriValue);
+  const loginTimeoutMs = config.oauthLoginTimeoutMs ?? DEFAULT_OAUTH_LOGIN_TIMEOUT_MS;
   const state = randomBytes(32).toString('base64url');
   const code = await new Promise<string>((resolve, reject) => {
     let finished = false;
@@ -153,13 +158,29 @@ export async function loginWithLocalCallback(
         return;
       }
       response
-        .writeHead(200, { 'content-type': 'text/plain; charset=utf-8' })
-        .end('Warcraft Logs authorization completed. You can close this window.');
+        .writeHead(200, {
+          'cache-control': 'no-store',
+          'content-security-policy': "default-src 'none'; script-src 'unsafe-inline'",
+          'content-type': 'text/html; charset=utf-8',
+          'referrer-policy': 'no-referrer',
+          'x-content-type-options': 'nosniff',
+        })
+        .end(
+          callbackHtml(
+            'Warcraft Logs authorization was received. Return to the terminal while the secure token exchange completes; you can close this window.',
+          ),
+        );
       finish(undefined, returnedCode);
     });
     const timer = setTimeout(
-      () => finish(new WclError('TIMEOUT', 'OAuth login timed out after five minutes.')),
-      5 * 60_000,
+      () =>
+        finish(
+          new WclError(
+            'TIMEOUT',
+            `OAuth login timed out after ${Math.round(loginTimeoutMs / 60_000)} minutes. Restart \`warcraftlogs-mcp auth login\` before authorizing again; an expired callback page will show connection refused.`,
+          ),
+        ),
+      loginTimeoutMs,
     );
     const finish = (error?: Error, value?: string) => {
       if (finished) return;

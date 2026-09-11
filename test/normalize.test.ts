@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { countForEntry, getTableEntries, normalizeTable } from '../src/normalize.js';
+import {
+  countDeathsForPlayer,
+  countForEntry,
+  countInterruptsForPlayer,
+  getTableEntries,
+  normalizeTable,
+} from '../src/normalize.js';
+import { ACTORS } from './helpers.js';
+
+const alice = {
+  ...ACTORS[0]!,
+  fightIDs: [1],
+  specs: ['Retribution'],
+  itemLevels: [301],
+};
 
 describe('table normalization', () => {
   it('preserves the WCL shape while bounding nested entry arrays', () => {
@@ -26,5 +40,57 @@ describe('table normalization', () => {
     expect(countForEntry({ total: 123 }, 'DamageDone')).toBe(123);
     expect(countForEntry({ uses: 7 }, 'Interrupts')).toBe(7);
     expect(countForEntry({ deathEvents: [{ timestamp: 1 }, { timestamp: 2 }] }, 'Deaths')).toBe(2);
+  });
+
+  it('counts repeated WCL death rows for one player', () => {
+    const value = {
+      data: {
+        entries: [
+          { id: 1, name: 'Alice', timestamp: 1_000, killingBlow: { name: 'Fire' } },
+          { id: 2, name: 'Bob', timestamp: 2_000, killingBlow: { name: 'Void' } },
+          { id: 1, name: 'Alice', timestamp: 3_000, killingBlow: { name: 'Melee' } },
+        ],
+      },
+    };
+
+    expect(countDeathsForPlayer(value, alice)).toBe(2);
+  });
+
+  it('does not fall back to a matching name when actor IDs conflict', () => {
+    expect(
+      countDeathsForPlayer(
+        { data: { entries: [{ id: 2, name: 'Alice', timestamp: 1_000 }] } },
+        alice,
+      ),
+    ).toBe(0);
+  });
+
+  it('sums nested per-player interrupt details across interrupted abilities', () => {
+    const value = {
+      data: {
+        entries: [
+          {
+            entries: [
+              {
+                name: 'Chaos Bolt',
+                details: [
+                  { id: 1, name: 'Alice', total: 3, abilities: [{ name: 'Rebuke', total: 3 }] },
+                  { id: 2, name: 'Bob', total: 1 },
+                ],
+              },
+              { name: 'Fel Missiles', details: [{ id: 1, name: 'Alice', total: 4 }] },
+            ],
+          },
+        ],
+      },
+    };
+
+    expect(countInterruptsForPlayer(value, alice)).toBe(7);
+  });
+
+  it('keeps compatibility with flat interrupt player rows', () => {
+    expect(
+      countInterruptsForPlayer({ data: { entries: [{ id: 1, name: 'Alice', uses: 4 }] } }, alice),
+    ).toBe(4);
   });
 });

@@ -21,12 +21,13 @@ import { WclClient } from './client.js';
 import { characterIdentity, normalizeServerSlug } from './character.js';
 import {
   byteLength,
+  countDeathsForPlayer,
   countForEntry,
+  countInterruptsForPlayer,
+  entryMatchesPlayer,
   getTableEntries,
   isJsonObject,
   normalizeTable,
-  numberField,
-  stringField,
 } from './normalize.js';
 import {
   DOCTOR_QUERY,
@@ -472,7 +473,7 @@ export class WclService {
     const tableRequests = [
       ['damage', 'DamageDone', 'Source'],
       ['healing', 'Healing', 'Source'],
-      ['deaths', 'Deaths', 'Target'],
+      ['deaths', 'Deaths', 'Source'],
       ['interrupts', 'Interrupts', 'Source'],
     ] as const;
     const settled = await Promise.allSettled(
@@ -509,8 +510,6 @@ export class WclService {
         const interruptsTable = tables.get('interrupts');
         const damage = this.findPlayerEntry(damageTable, player);
         const healing = this.findPlayerEntry(healingTable, player);
-        const deaths = this.findPlayerEntry(deathsTable, player);
-        const interrupts = this.findPlayerEntry(interruptsTable, player);
         const totalDamage =
           damageTable === undefined
             ? null
@@ -540,18 +539,11 @@ export class WclService {
             totalHealing === null || durationSeconds === null
               ? null
               : Math.round(totalHealing / durationSeconds),
-          deaths:
-            deathsTable === undefined
-              ? null
-              : deaths === null
-                ? 0
-                : countForEntry(deaths, 'Deaths'),
+          deaths: deathsTable === undefined ? null : countDeathsForPlayer(deathsTable.data, player),
           interrupts:
             interruptsTable === undefined
               ? null
-              : interrupts === null
-                ? 0
-                : countForEntry(interrupts, 'Interrupts'),
+              : countInterruptsForPlayer(interruptsTable.data, player),
         };
       })
       .sort((left, right) => (right.totalDamage ?? -1) - (left.totalDamage ?? -1));
@@ -629,7 +621,7 @@ export class WclService {
       [
         'damageTaken',
         () =>
-          this.fetchTable(reference, fight, 'DamageTaken', { targetID: actorID }, evidenceOptions),
+          this.fetchTable(reference, fight, 'DamageTaken', { sourceID: actorID }, evidenceOptions),
       ],
       [
         'interrupts',
@@ -638,7 +630,7 @@ export class WclService {
       ],
       [
         'deaths',
-        () => this.fetchTable(reference, fight, 'Deaths', { targetID: actorID }, evidenceOptions),
+        () => this.fetchTable(reference, fight, 'Deaths', { sourceID: actorID }, evidenceOptions),
       ],
       [
         'buffs',
@@ -702,8 +694,17 @@ export class WclService {
       fight,
       player,
       sourceTargetSemantics: {
-        source: ['DamageDone', 'Casts', 'Interrupts', 'Resources', 'CombatantInfo'],
-        target: ['DamageTaken', 'Deaths', 'Buffs'],
+        source: [
+          'DamageDone',
+          'DamageTaken',
+          'Casts',
+          'Interrupts',
+          'Deaths',
+          'Resources',
+          'CombatantInfo',
+        ],
+        target: ['Buffs'],
+        note: 'WCL table sourceID is the selected player perspective for DamageTaken and Deaths, even though the underlying combat events target that player.',
       },
       evidence,
       warnings,
@@ -830,7 +831,7 @@ export class WclService {
     } = {},
     options: CharacterHistoryOptions = {},
   ) {
-    return this.getCharacterTableHistory(input, 'Deaths', 'target', options);
+    return this.getCharacterTableHistory(input, 'Deaths', 'source', options);
   }
 
   async getCharacterCasts(
@@ -1512,14 +1513,7 @@ export class WclService {
     const entries = getTableEntries(table.data);
     return (
       entries.find((entry) => {
-        const id = numberField(entry, ['id', 'actorID', 'sourceID', 'targetID']);
-        if (id !== null && player.id !== null && id === player.id) return true;
-        const name = stringField(entry, ['name', 'actorName']);
-        return (
-          name !== null &&
-          player.name !== null &&
-          name.toLocaleLowerCase() === player.name.toLocaleLowerCase()
-        );
+        return entryMatchesPlayer(entry, player);
       }) ?? null
     );
   }

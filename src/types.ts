@@ -34,6 +34,7 @@ export type WclConfig = {
   userTokenExpiresAt: Partial<Record<WclRegion, number>>;
   stateDirectory: string;
   requestTimeoutMs: number;
+  oauthLoginTimeoutMs?: number | undefined;
   maxRetries: number;
   maxRetryAfterMs: number;
 };

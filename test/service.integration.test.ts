@@ -257,9 +257,25 @@ describe('WclService mock integration', () => {
               { id: 2, name: 'Bob', total: 8_000 },
             ]);
           case 'Deaths':
-            return tableResponse([{ id: 1, name: 'Alice', deathEvents: [{ timestamp: 5_000 }] }]);
+            return tableResponse([
+              { id: 1, name: 'Alice', timestamp: 5_000 },
+              { id: 1, name: 'Alice', timestamp: 6_000 },
+            ]);
           case 'Interrupts':
-            return tableResponse([{ id: 1, name: 'Alice', uses: 4 }]);
+            return tableResponse([
+              {
+                entries: [
+                  {
+                    name: 'Chaos Bolt',
+                    details: [
+                      { id: 1, name: 'Alice', total: 3 },
+                      { id: 2, name: 'Bob', total: 1 },
+                    ],
+                  },
+                  { name: 'Fel Missiles', details: [{ id: 1, name: 'Alice', total: 4 }] },
+                ],
+              },
+            ]);
           default:
             throw new Error('Unexpected table');
         }
@@ -283,10 +299,10 @@ describe('WclService mock integration', () => {
       totalDamage: 10_000,
       dps: 1_000,
       hps: 50,
-      deaths: 1,
-      interrupts: 4,
+      deaths: 2,
+      interrupts: 7,
     });
-    expect(result.players[1]).toMatchObject({ id: 2, name: 'Bob', deaths: 0, interrupts: 0 });
+    expect(result.players[1]).toMatchObject({ id: 2, name: 'Bob', deaths: 0, interrupts: 1 });
   });
 
   it('discovers recent reports for bounded character death and cast history', async () => {
@@ -361,7 +377,7 @@ describe('WclService mock integration', () => {
 
     expect(deaths).toMatchObject({
       dataType: 'Deaths',
-      sourceTargetSemantics: 'target',
+      sourceTargetSemantics: 'source',
       reportsScanned: 1,
       reportsReturned: 1,
       fightsAnalyzed: 1,
@@ -375,7 +391,7 @@ describe('WclService mock integration', () => {
     expect(tableVariables[0]).toMatchObject({
       dataType: 'Deaths',
       fightIDs: [1],
-      targetID: 1,
+      sourceID: 1,
       allowUnlisted: true,
     });
     expect(tableVariables[1]).toMatchObject({
@@ -439,10 +455,12 @@ describe('WclService mock integration', () => {
   });
 
   it('returns best-effort player evidence with warnings for failed components', async () => {
+    const tableVariables: Record<string, unknown>[] = [];
     const service = routedService((query, variables) => {
       if (query.includes('ListFights')) return fightsResponse();
       if (query.includes('ListPlayers')) return playersResponse();
       if (query.includes('GetReportTable')) {
+        tableVariables.push(variables);
         if (variables['dataType'] === 'Buffs') {
           return jsonResponse({ data: null, errors: [{ message: 'Buff table unavailable' }] });
         }
@@ -476,6 +494,15 @@ describe('WclService mock integration', () => {
     expect(result.evidence).toHaveProperty('talentImportCode');
     expect(result.evidence).not.toHaveProperty('buffs');
     expect(result.warnings).toEqual([expect.objectContaining({ component: 'buffs' })]);
+    expect(
+      tableVariables.find((variables) => variables['dataType'] === 'DamageTaken'),
+    ).toMatchObject({ sourceID: 1 });
+    expect(tableVariables.find((variables) => variables['dataType'] === 'Deaths')).toMatchObject({
+      sourceID: 1,
+    });
+    expect(tableVariables.find((variables) => variables['dataType'] === 'Buffs')).toMatchObject({
+      targetID: 1,
+    });
   });
 
   it('omits later analysis components before crossing the aggregate byte budget', async () => {

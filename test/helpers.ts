@@ -7,6 +7,7 @@ export const TEST_CONFIG: WclConfig = {
   userTokenExpiresAt: {},
   stateDirectory: '/tmp/warcraftlogs-mcp-test',
   requestTimeoutMs: 1_000,
+  oauthLoginTimeoutMs: 15 * 60_000,
   maxRetries: 2,
   maxRetryAfterMs: 2_000,
 };

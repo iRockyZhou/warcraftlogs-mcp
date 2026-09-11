@@ -1,6 +1,7 @@
 import {
   DEFAULT_MAX_RETRIES,
   DEFAULT_MAX_RETRY_AFTER_MS,
+  DEFAULT_OAUTH_LOGIN_TIMEOUT_MS,
   DEFAULT_TIMEOUT_MS,
 } from './constants.js';
 import { WclError } from './errors.js';
@@ -59,6 +60,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WclConfig {
       DEFAULT_TIMEOUT_MS,
       1_000,
       120_000,
+    ),
+    oauthLoginTimeoutMs: readInteger(
+      env,
+      'WCL_OAUTH_LOGIN_TIMEOUT_MS',
+      DEFAULT_OAUTH_LOGIN_TIMEOUT_MS,
+      60_000,
+      3_600_000,
     ),
     maxRetries: readInteger(env, 'WCL_MAX_RETRIES', DEFAULT_MAX_RETRIES, 0, 5),
     maxRetryAfterMs: readInteger(

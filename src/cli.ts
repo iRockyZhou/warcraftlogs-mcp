@@ -30,6 +30,7 @@ Environment:
   WCL_USER_ACCESS_TOKEN            Optional global-site user access token
   WCL_CN_USER_ACCESS_TOKEN         Optional CN-site user access token
   WCL_OAUTH_REDIRECT_URI           Local OAuth callback (default: http://127.0.0.1:8765/callback)
+  WCL_OAUTH_LOGIN_TIMEOUT_MS       Interactive login wait (default: 900000)
   WCL_STATE_DIR                    Token, active-character, and subscription directory
   WCL_REQUEST_TIMEOUT_MS           Request timeout (default: 15000)
   WCL_MAX_RETRIES                  Transient retry count (default: 2)

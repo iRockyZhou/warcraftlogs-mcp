@@ -3,6 +3,7 @@ import type {
   JsonObject,
   JsonValue,
   NormalizedTable,
+  PlayerSummary,
   TableDataType,
   TableFilter,
 } from './types.js';
@@ -124,4 +125,75 @@ export function countForEntry(object: JsonObject, dataType: TableDataType): numb
     return numberField(object, ['uses', 'totalUses', 'count', 'total']);
   }
   return numberField(object, ['total', 'amount', 'totalDamage', 'totalHealing']);
+}
+
+export function entryMatchesPlayer(object: JsonObject, player: PlayerSummary): boolean {
+  const id = numberField(object, ['id', 'actorID', 'sourceID', 'targetID']);
+  if (id !== null && player.id !== null) return id === player.id;
+  const name = stringField(object, ['name', 'actorName']);
+  return (
+    name !== null &&
+    player.name !== null &&
+    name.toLocaleLowerCase() === player.name.toLocaleLowerCase()
+  );
+}
+
+/**
+ * WCL's Deaths table is a list of individual death rows in current Retail logs,
+ * not one aggregate row per player. Older/table variants may expose a deathEvents
+ * array or an explicit count, so keep all three shapes supported.
+ */
+export function countDeathsForPlayer(value: JsonValue, player: PlayerSummary): number {
+  return getTableEntries(value)
+    .filter((entry) => entryMatchesPlayer(entry, player))
+    .reduce((total, entry) => {
+      const deathEvents = entry['deathEvents'];
+      if (Array.isArray(deathEvents)) return total + deathEvents.length;
+      const explicit = numberField(entry, ['deaths', 'deathCount', 'count', 'total']);
+      return total + (explicit ?? 1);
+    }, 0);
+}
+
+/**
+ * Interrupt tables are commonly grouped by interrupted ability. Each ability row
+ * contains a `details` array with per-player totals, so a top-level player lookup
+ * incorrectly reports zero. Fall back to the legacy flat player-row shape used by
+ * some WCL table variants and older fixtures.
+ */
+export function countInterruptsForPlayer(value: JsonValue, player: PlayerSummary): number {
+  const visit = (current: JsonValue): { sawDetails: boolean; total: number } => {
+    if (Array.isArray(current)) {
+      return current.map(visit).reduce(
+        (combined, result) => ({
+          sawDetails: combined.sawDetails || result.sawDetails,
+          total: combined.total + result.total,
+        }),
+        { sawDetails: false, total: 0 },
+      );
+    }
+    if (!isJsonObject(current)) return { sawDetails: false, total: 0 };
+
+    const details = current['details'];
+    let sawDetails = Array.isArray(details);
+    let total = 0;
+    if (Array.isArray(details)) {
+      for (const detail of details) {
+        if (!isJsonObject(detail) || !entryMatchesPlayer(detail, player)) continue;
+        total += numberField(detail, ['total', 'uses', 'totalUses', 'count']) ?? 0;
+      }
+    }
+    for (const [key, child] of Object.entries(current)) {
+      if (key === 'details') continue;
+      const result = visit(child);
+      sawDetails ||= result.sawDetails;
+      total += result.total;
+    }
+    return { sawDetails, total };
+  };
+
+  const nested = visit(value);
+  if (nested.sawDetails) return nested.total;
+  return getTableEntries(value)
+    .filter((entry) => entryMatchesPlayer(entry, player))
+    .reduce((total, entry) => total + (countForEntry(entry, 'Interrupts') ?? 0), 0);
 }

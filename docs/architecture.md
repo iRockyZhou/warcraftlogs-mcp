@@ -50,12 +50,12 @@ GraphQL HTTP envelopes are treated as `unknown`. Structured report, fight, actor
 
 Friendly table tools accept a single `playerID` and map it to the WCL argument that answers the product question:
 
-| Data                                                        | Player filter |
-| ----------------------------------------------------------- | ------------- |
-| Damage Done, Casts, Interrupts, Dispels, Healing, Resources | `sourceID`    |
-| Damage Taken, Deaths, Buffs, Debuffs                        | `targetID`    |
+| Data                                                                              | Player filter |
+| --------------------------------------------------------------------------------- | ------------- |
+| Damage Done, Damage Taken, Casts, Interrupts, Deaths, Dispels, Healing, Resources | `sourceID`    |
+| Buffs, Debuffs                                                                    | `targetID`    |
 
-Table JSON is preserved, but nested arrays are capped and the result must fit a serialized byte budget. The response reports original/returned entry counts and truncation state.
+WCL treats `sourceID` as the selected player perspective for Damage Taken and Deaths, even though the underlying combat event targets that player. This behavior was verified against current Retail CN report responses; WCL explicitly documents table JSON as unstable, so real response-shape regression fixtures cover it. Table JSON is preserved, but nested arrays are capped and the result must fit a serialized byte budget. The response reports original/returned entry counts and truncation state.
 
 ## Event pagination
 
@@ -70,7 +70,7 @@ When a byte budget cuts a page, the timestamp of the first unreturned event beco
 
 ## High-level evidence
 
-`get_mythic_plus_summary` joins fight metadata, master actors, and four small tables. Non-essential tables use `Promise.allSettled`; missing damage/healing/death/interrupt evidence appears as a warning instead of erasing the whole summary.
+`get_mythic_plus_summary` joins fight metadata, master actors, and four small tables. Deaths are counted from repeated per-death player rows. Interrupt totals are summed from the nested per-ability `details` arrays that current WCL returns, with compatibility for legacy flat player rows. Non-essential tables use `Promise.allSettled`; missing damage/healing/death/interrupt evidence appears as a warning instead of erasing the whole summary.
 
 `get_player_analysis_context` follows the same best-effort pattern for damage, casts, damage taken, interrupts, deaths, buffs, resources, CombatantInfo, and the talent import code. Per-component entry/byte limits feed an aggregate byte budget; later components are omitted with warnings before the result can cross that budget.
 
@@ -82,7 +82,7 @@ The core does not encode Retribution Paladin or other specialization heuristics.
 
 Character names, realm names, and regions are normalized into a stable identity. `set_active_character` validates that identity against WCL before atomically persisting it. Character discovery exposes recent reports and encounter or zone rankings without mixing these queries into report-analysis code.
 
-`get_character_deaths` and `get_character_casts` are bounded compound queries: they discover at most ten recent reports, resolve the character's report actor ID independently in each report, apply target semantics for deaths and source semantics for casts, and collect per-report tables with partial-failure warnings. Per-table limits feed a final aggregate byte budget.
+`get_character_deaths` and `get_character_casts` are bounded compound queries: they discover at most ten recent reports, resolve the character's report actor ID independently in each report, apply WCL player/source semantics, and collect per-report tables with partial-failure warnings. Per-table limits feed a final aggregate byte budget.
 
 A subscription is a local pull cursor containing the latest report start time plus every report code at that timestamp. This boundary set prevents duplicates without dropping two reports that share a start time. `auto` is resolved to `public` or `user` when the subscription is created, so an expired private grant cannot silently advance the cursor using public-only results. Checks are serialized in process and state files are replaced atomically. Individual subscription failures are returned alongside successful checks instead of aborting the batch.
 

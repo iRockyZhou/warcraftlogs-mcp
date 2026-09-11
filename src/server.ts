@@ -415,9 +415,9 @@ export function createServer(service: WclService): McpServer {
     service,
     'get_damage_taken',
     'Get damage taken',
-    'Get bounded damage-taken evidence. playerID is correctly applied as WCL targetID.',
+    'Get bounded damage-taken evidence. WCL table semantics require playerID as sourceID for the selected player perspective.',
     'DamageTaken',
-    'target',
+    'source',
   );
   registerTableTool(
     server,
@@ -442,9 +442,9 @@ export function createServer(service: WclService): McpServer {
     service,
     'get_deaths',
     'Get deaths',
-    'Get bounded death evidence. playerID is correctly applied as WCL targetID.',
+    'Get bounded death evidence. WCL table semantics require playerID as sourceID for the selected player perspective.',
     'Deaths',
-    'target',
+    'source',
   );
   registerTableTool(
     server,
@@ -857,9 +857,9 @@ export function createServer(service: WclService): McpServer {
     service,
     'get_fight_damage_taken',
     'Get fight damage taken',
-    'Compatibility alias for get_damage_taken with bounded target semantics.',
+    'Compatibility alias for get_damage_taken with bounded WCL player/source semantics.',
     'DamageTaken',
-    'target',
+    'source',
   );
   server.registerTool(
     'get_character_deaths',

@@ -67,6 +67,18 @@ describe('secure local state', () => {
     expect(config.userTokenExpiresAt.global).toBeUndefined();
   });
 
+  it('defaults and validates the interactive OAuth login timeout', async () => {
+    const directory = await temporaryDirectory();
+    expect(loadConfig({ WCL_STATE_DIR: directory }).oauthLoginTimeoutMs).toBe(15 * 60_000);
+    expect(
+      loadConfig({ WCL_STATE_DIR: directory, WCL_OAUTH_LOGIN_TIMEOUT_MS: '120000' })
+        .oauthLoginTimeoutMs,
+    ).toBe(120_000);
+    expect(() =>
+      loadConfig({ WCL_STATE_DIR: directory, WCL_OAUTH_LOGIN_TIMEOUT_MS: '1000' }),
+    ).toThrow();
+  });
+
   it('serializes concurrent state updates and advances a subscription cursor', async () => {
     const directory = await temporaryDirectory();
     const store = new WclStateStore(directory);

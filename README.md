@@ -30,6 +30,8 @@ See the [dated comparison with `wcl-mcp`](docs/comparison-wcl-mcp.md) for the co
 
 Register `http://127.0.0.1:8765/callback` as an OAuth redirect URI if you want private-report access. Client credentials remain sufficient for public and directly linked unlisted reports.
 
+For CN players, WCL currently cannot link a China Battle.net account. A practical cross-region setup is to link a supported Battle.net region (for example Taiwan) to the same WCL account, create a **V2** API client, and then run `auth login cn`. The resulting client credentials and CN user authorization have been verified against `cn.warcraftlogs.com`; a legacy V1 client key is not a substitute for the V2 client secret.
+
 ## Install and run
 
 Once published to npm:
@@ -86,7 +88,7 @@ warcraftlogs-mcp auth status
 warcraftlogs-mcp auth logout global
 ```
 
-`auth login` prints the official WCL authorization URL and waits on a loopback-only callback. The token is written atomically under `~/.config/warcraftlogs-mcp/auth.json` with mode `0600`; its directory is forced to `0700`. The token is never returned by an MCP tool. WCL does not document refresh tokens for this flow, so repeat `auth login` after expiry.
+`auth login` prints the official WCL authorization URL and waits up to 15 minutes on a loopback-only callback. Keep that command running until the browser returns to `127.0.0.1`; if the command has stopped, the old callback page will show `ERR_CONNECTION_REFUSED` and you must start a fresh login. The completion page removes the one-time authorization code from the visible URL and disables caching/referrers. The token is written atomically under `~/.config/warcraftlogs-mcp/auth.json` with mode `0600`; its directory is forced to `0700`. The token is never returned by an MCP tool. WCL does not document refresh tokens for this flow, so repeat `auth login` after expiry.
 
 Report tools expose `accessMode`:
 
@@ -187,10 +189,10 @@ Every data tool accepts either a report code or a full supported report URL. A f
 
 The friendly `playerID` argument removes a common WCL integration mistake:
 
-- Source: Damage Done, Casts, Interrupts, Dispels, Healing, Resources, and CombatantInfo.
-- Target: Damage Taken, Deaths, Buffs, and Debuffs.
+- WCL player/source perspective: Damage Done, Damage Taken, Casts, Interrupts, Deaths, Dispels, Healing, Resources, and CombatantInfo.
+- Target: Buffs and Debuffs.
 
-The low-level `get_events` tool exposes explicit `sourceID` and `targetID` because event investigations sometimes need either direction.
+This is deliberately data-type-aware. For current WCL table/event APIs, `sourceID` selects the player whose Damage Taken or Deaths view is requested, even though the returned raw combat event identifies that player as `targetID`. Buff and debuff questions still use `targetID` to mean the affected player. The low-level `get_events` tool exposes both filters for advanced investigations, but callers should interpret them in the context of `dataType` rather than assuming raw event-field direction.
 
 ### Event pagination and budgets
 
@@ -204,17 +206,18 @@ If a byte limit stops part-way through a WCL page, `cursorMayRepeat` is true. Th
 
 ## Configuration
 
-| Variable                   |                          Default | Meaning                                   |
-| -------------------------- | -------------------------------: | ----------------------------------------- |
-| `WCL_CLIENT_ID`            |           required for API calls | OAuth client ID.                          |
-| `WCL_CLIENT_SECRET`        |           required for API calls | OAuth client secret.                      |
-| `WCL_USER_ACCESS_TOKEN`    |               stored login token | Optional global-site user token override. |
-| `WCL_CN_USER_ACCESS_TOKEN` |               stored login token | Optional CN-site user token override.     |
-| `WCL_OAUTH_REDIRECT_URI`   | `http://127.0.0.1:8765/callback` | Registered loopback callback.             |
-| `WCL_STATE_DIR`            |     `~/.config/warcraftlogs-mcp` | Private auth and subscription state.      |
-| `WCL_REQUEST_TIMEOUT_MS`   |                          `15000` | Per-request timeout.                      |
-| `WCL_MAX_RETRIES`          |                              `2` | Retries for network/timeout/5xx failures. |
-| `WCL_MAX_RETRY_AFTER_MS`   |                           `2000` | Longest 429 delay the process will wait.  |
+| Variable                     |                          Default | Meaning                                   |
+| ---------------------------- | -------------------------------: | ----------------------------------------- |
+| `WCL_CLIENT_ID`              |           required for API calls | OAuth client ID.                          |
+| `WCL_CLIENT_SECRET`          |           required for API calls | OAuth client secret.                      |
+| `WCL_USER_ACCESS_TOKEN`      |               stored login token | Optional global-site user token override. |
+| `WCL_CN_USER_ACCESS_TOKEN`   |               stored login token | Optional CN-site user token override.     |
+| `WCL_OAUTH_REDIRECT_URI`     | `http://127.0.0.1:8765/callback` | Registered loopback callback.             |
+| `WCL_OAUTH_LOGIN_TIMEOUT_MS` |                         `900000` | Maximum interactive login wait.           |
+| `WCL_STATE_DIR`              |     `~/.config/warcraftlogs-mcp` | Private auth and subscription state.      |
+| `WCL_REQUEST_TIMEOUT_MS`     |                          `15000` | Per-request timeout.                      |
+| `WCL_MAX_RETRIES`            |                              `2` | Retries for network/timeout/5xx failures. |
+| `WCL_MAX_RETRY_AFTER_MS`     |                           `2000` | Longest 429 delay the process will wait.  |
 
 `parse_wcl_url` and tool discovery still work without credentials. API calls return a structured `CONFIG_ERROR` until both credentials are configured.
 

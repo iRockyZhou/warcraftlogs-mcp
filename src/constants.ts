@@ -1,5 +1,5 @@
 export const PACKAGE_NAME = 'warcraftlogs-mcp';
-export const PACKAGE_VERSION = '0.2.0';
+export const PACKAGE_VERSION = '0.2.1';
 
 export const WCL_ORIGINS = {
   global: 'https://www.warcraftlogs.com',
@@ -11,6 +11,7 @@ export type WclOrigin = (typeof WCL_ORIGINS)[WclRegion];
 
 export const REPORT_CODE_PATTERN = /^[A-Za-z0-9]{16}$/;
 export const DEFAULT_TIMEOUT_MS = 15_000;
+export const DEFAULT_OAUTH_LOGIN_TIMEOUT_MS = 15 * 60_000;
 export const DEFAULT_MAX_RETRIES = 2;
 export const DEFAULT_MAX_RETRY_AFTER_MS = 2_000;
 export const TOKEN_EXPIRY_SKEW_MS = 30_000;

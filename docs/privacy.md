@@ -25,6 +25,8 @@ Writes are atomic. The state directory is mode `0700`, and files are mode `0600`
 
 Neither OAuth tokens nor client secrets are included in MCP results, logs, or normalized errors. `auth status` reports only whether tokens exist and their expiry timestamps.
 
+The interactive loopback callback is bound only to `127.0.0.1`/`localhost`, returns `no-store` and `no-referrer` headers, and removes the short-lived authorization code from the visible browser URL after receipt.
+
 ## Visibility-specific risks
 
 - Public reports are already discoverable on WCL, but player names, guild names, timestamps, performance, talents, and gear can still be personal data in context.

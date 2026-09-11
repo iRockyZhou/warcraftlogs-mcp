@@ -83,10 +83,10 @@ describe('MCP mock integration', () => {
 
       const semantics = [
         ['get_damage_done', 'sourceID'],
-        ['get_damage_taken', 'targetID'],
+        ['get_damage_taken', 'sourceID'],
         ['get_casts', 'sourceID'],
         ['get_interrupts', 'sourceID'],
-        ['get_deaths', 'targetID'],
+        ['get_deaths', 'sourceID'],
         ['get_buffs', 'targetID'],
         ['get_debuffs', 'targetID'],
         ['get_dispels', 'sourceID'],
@@ -94,7 +94,7 @@ describe('MCP mock integration', () => {
         ['get_resources', 'sourceID'],
         ['get_fight_damage', 'sourceID'],
         ['get_fight_healing', 'sourceID'],
-        ['get_fight_damage_taken', 'targetID'],
+        ['get_fight_damage_taken', 'sourceID'],
         ['get_buff_uptime', 'targetID'],
       ] as const;
 
