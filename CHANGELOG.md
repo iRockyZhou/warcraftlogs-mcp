@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+### Patch Changes
+
+- [`b870a48`](https://github.com/iRockyZhou/warcraftlogs-mcp/commit/b870a4862eab64ebea8e1ae2683c8495a02b8f96) Thanks [@iRockyZhou](https://github.com/iRockyZhou)! - Automate npm releases with Changesets v3, npm Trusted Publishing, provenance, and a dedicated GitHub environment.
+
 All notable changes to this project will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
